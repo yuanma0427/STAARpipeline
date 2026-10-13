@@ -26,27 +26,27 @@ static void K1_K2_Binary_SPA(double x, const arma::vec& muhat, const arma::vec& 
 }
 
 // declare K_Binary_SPA
-double K_Binary_SPA(double x, arma::vec muhat, arma::vec G);
+double K_Binary_SPA(double x, const arma::vec& muhat, const arma::vec& G);
 // declare K_Binary_SPA_alt (alternative way if not converge)
-double K_Binary_SPA_alt(double x, arma::vec muhat, arma::vec G);
+double K_Binary_SPA_alt(double x, const arma::vec& muhat, const arma::vec& G);
 // declare K1_Binary_SPA (first derivative)
-double K1_Binary_SPA(double x, arma::vec muhat, arma::vec G, double q);
+double K1_Binary_SPA(double x, const arma::vec& muhat, const arma::vec& G, double q);
 // declare K1_Binary_SPA_alt (first derivative, alternative way if not converge)
-double K1_Binary_SPA_alt(double x, arma::vec muhat, arma::vec G, double q);
+double K1_Binary_SPA_alt(double x, const arma::vec& muhat, const arma::vec& G, double q);
 // declare K2_Binary_SPA (second derivative)
-double K2_Binary_SPA(double x, arma::vec muhat, arma::vec G);
+double K2_Binary_SPA(double x, const arma::vec& muhat, const arma::vec& G);
 // declare K2_Binary_SPA_alt (second derivative, alternative way if not converge)
-double K2_Binary_SPA_alt(double x, arma::vec muhat, arma::vec G);
+double K2_Binary_SPA_alt(double x, const arma::vec& muhat, const arma::vec& G);
 // declare NR
-double NR_Binary_SPA(arma::vec muhat, arma::vec G, double q, double init, double tol, int max_iter);
+double NR_Binary_SPA(const arma::vec& muhat, const arma::vec& G, double q, double init, double tol, int max_iter);
 // declare golden section search method for selecting initial value of bisection algorothm
-arma::vec goldenSectionSearchForSignChange(double a, double b, arma::vec muhat, arma::vec G, double q, double tol, int max_iter);
+arma::vec goldenSectionSearchForSignChange(double a, double b, const arma::vec& muhat, const arma::vec& G, double q, double tol, int max_iter);
 // declare Bisection method
-double Bisection_Binary_SPA(arma::vec muhat, arma::vec G, double q, double xmin, double xmax, double tol);
+double Bisection_Binary_SPA(const arma::vec& muhat, const arma::vec& G, double q, double xmin, double xmax, double tol);
 // declare Saddle_Binary_SPA using NR
-double Saddle_Binary_SPA(double q, arma::vec muhat, arma::vec G, double tol, int max_iter, bool lower);
+double Saddle_Binary_SPA(double q, const arma::vec& muhat, const arma::vec& G, double tol, int max_iter, bool lower);
 // declare Saddle_Binary_SPA using Bisection
-double Saddle_Binary_SPA_Bisection(double q, arma::vec muhat, arma::vec G, double tol, int max_iter, double xmin, double xmax, bool lower);
+double Saddle_Binary_SPA_Bisection(double q, const arma::vec& muhat, const arma::vec& G, double tol, int max_iter, double xmin, double xmax, bool lower);
 // check na
 bool check_is_na(double x); 
 // check same sign
@@ -137,7 +137,7 @@ arma::vec Individual_Score_Test_SPA(arma::mat G, arma::mat XW, arma::mat XXWX_in
 }
 
 
-double Saddle_Binary_SPA(double q, arma::vec muhat, arma::vec G, double tol, int max_iter, bool lower)
+double Saddle_Binary_SPA(double q, const arma::vec& muhat, const arma::vec& G, double tol, int max_iter, bool lower)
 {
 	bool logp = false;
 	
@@ -178,7 +178,7 @@ double Saddle_Binary_SPA(double q, arma::vec muhat, arma::vec G, double tol, int
 }
 
 
-double NR_Binary_SPA(arma::vec muhat, arma::vec G, double q, double init, double tol, int max_iter)
+double NR_Binary_SPA(const arma::vec& muhat, const arma::vec& G, double q, double init, double tol, int max_iter)
 {
 	double xi = 0.0;
 	double xi_update = 0.0;
@@ -187,12 +187,17 @@ double NR_Binary_SPA(arma::vec muhat, arma::vec G, double q, double init, double
 	xi = init;
 	xi_update = init;
 	
-	if(fabs(K1_Binary_SPA(xi, muhat, G, q)) > tol)
+	// first and second derivatives
+	double first = 0.0;
+	double second = 0.0;
+	K1_K2_Binary_SPA(xi,muhat,G,q,first,second);
+	if(fabs(first) > tol)
 	{
-		double first = 0.0;
-		double second = 0.0;
-		K1_K2_Binary_SPA(xi,muhat,G,q,first,second);
 		xi_update = xi - first/second;
+		if(!(check_is_na(xi_update))&&(R_finite(xi_update)==1)&&(fabs(xi_update - xi) > tol))
+		{
+			K1_K2_Binary_SPA(xi_update,muhat,G,q,first,second);
+		}
 	}
 	
 	// iteration number
@@ -200,26 +205,30 @@ double NR_Binary_SPA(arma::vec muhat, arma::vec G, double q, double init, double
 	double numerator = 0.0;
 	double denominator = 1.0;
 	
-	while (!(check_is_na(xi_update))&&(R_finite(xi_update)==1)&&(fabs(xi_update - xi) > tol)&&(fabs(K1_Binary_SPA(xi_update, muhat, G, q)) > tol)&&(no_iter < max_iter))
+	while (!(check_is_na(xi_update))&&(R_finite(xi_update)==1)&&(fabs(xi_update - xi) > tol)&&(fabs(first) > tol)&&(no_iter < max_iter))
     {
 		no_iter = no_iter + 1;
 		xi = xi_update;	
 		
 		// calculate numerator
-		K1_K2_Binary_SPA(xi,muhat,G,q,numerator,denominator);
+		numerator = first;
 		if((R_finite(numerator)==0)||(check_is_na(numerator)))
 		{
 			numerator = K1_Binary_SPA_alt(xi, muhat, G, q);
 		}
 		
 		// calculate denominator
-		
+		denominator = second;
 		if((R_finite(denominator)==0)||(check_is_na(denominator)))
 		{
 			denominator = K2_Binary_SPA_alt(xi, muhat, G);
 		}
 		
 		xi_update = xi - numerator/denominator;
+		if(!(check_is_na(xi_update))&&(R_finite(xi_update)==1)&&(fabs(xi_update - xi) > tol))
+		{
+			K1_K2_Binary_SPA(xi_update,muhat,G,q,first,second);
+		}
     }
 
 	// test finite
@@ -258,7 +267,7 @@ double NR_Binary_SPA(arma::vec muhat, arma::vec G, double q, double init, double
 	return xi_update;
 }
 
-double Saddle_Binary_SPA_Bisection(double q, arma::vec muhat, arma::vec G, double tol, int max_iter, double xmin, double xmax, bool lower)
+double Saddle_Binary_SPA_Bisection(double q, const arma::vec& muhat, const arma::vec& G, double tol, int max_iter, double xmin, double xmax, bool lower)
 {
 	bool logp = false;
 	
@@ -313,7 +322,7 @@ double Saddle_Binary_SPA_Bisection(double q, arma::vec muhat, arma::vec G, doubl
 
 
 
-double Bisection_Binary_SPA(arma::vec muhat, arma::vec G, double q, double xmin, double xmax, double tol)
+double Bisection_Binary_SPA(const arma::vec& muhat, const arma::vec& G, double q, double xmin, double xmax, double tol)
 {
 
     // the range of x to search
@@ -383,7 +392,7 @@ double Bisection_Binary_SPA(arma::vec muhat, arma::vec G, double q, double xmin,
     return x0;
 }
 
-arma::vec goldenSectionSearchForSignChange(double a, double b, arma::vec muhat, arma::vec G, double q, double tol, int max_iter)
+arma::vec goldenSectionSearchForSignChange(double a, double b, const arma::vec& muhat, const arma::vec& G, double q, double tol, int max_iter)
 {
 	int iter = 0;
 
@@ -444,7 +453,7 @@ arma::vec goldenSectionSearchForSignChange(double a, double b, arma::vec muhat, 
 
 
 
-double K_Binary_SPA(double x, arma::vec muhat, arma::vec G)
+double K_Binary_SPA(double x, const arma::vec& muhat, const arma::vec& G)
 {
     double res = 0.0;
     const int n = muhat.size();
@@ -460,7 +469,7 @@ double K_Binary_SPA(double x, arma::vec muhat, arma::vec G)
 
 
 
-double K_Binary_SPA_alt(double x, arma::vec muhat, arma::vec G)
+double K_Binary_SPA_alt(double x, const arma::vec& muhat, const arma::vec& G)
 {
     double res = 0.0;
     const int n = muhat.size();
@@ -476,7 +485,7 @@ double K_Binary_SPA_alt(double x, arma::vec muhat, arma::vec G)
 }
 
 
-double K1_Binary_SPA(double x, arma::vec muhat, arma::vec G, double q)
+double K1_Binary_SPA(double x, const arma::vec& muhat, const arma::vec& G, double q)
 {
     double res = 0.0;
     const int n = muhat.size();
@@ -494,7 +503,7 @@ double K1_Binary_SPA(double x, arma::vec muhat, arma::vec G, double q)
 
 
 
-double K1_Binary_SPA_alt(double x, arma::vec muhat, arma::vec G, double q)
+double K1_Binary_SPA_alt(double x, const arma::vec& muhat, const arma::vec& G, double q)
 {
     double res = 0.0;
     const int n = muhat.size();
@@ -511,7 +520,7 @@ double K1_Binary_SPA_alt(double x, arma::vec muhat, arma::vec G, double q)
 }
 
 
-double K2_Binary_SPA(double x, arma::vec muhat, arma::vec G)
+double K2_Binary_SPA(double x, const arma::vec& muhat, const arma::vec& G)
 {
     double res = 0.0;
 	double temp1 = 0.0;
@@ -531,7 +540,7 @@ double K2_Binary_SPA(double x, arma::vec muhat, arma::vec G)
 }
 
 
-double K2_Binary_SPA_alt(double x, arma::vec muhat, arma::vec G)
+double K2_Binary_SPA_alt(double x, const arma::vec& muhat, const arma::vec& G)
 {
     double res = 0.0;
 	double temp1 = 0.0;

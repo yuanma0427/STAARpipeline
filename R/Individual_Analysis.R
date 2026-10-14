@@ -29,6 +29,22 @@
 #' @param p_filter_cutoff threshold for the p-value recalculation using the SPA method, only used for imbalanced case-control setting (default = 0.05)
 #' @param use_ancestry_informed logical: is ancestry-informed association analysis used to estimate p-values (default = FALSE).
 #' @param find_weight logical: should the ancestry group-specific weights and weighting scenario-specific p-values for each base test be saved as output (default = FALSE).
+#' @param variance_method method of calculating the score test variance. Either "exact_diag" (the exact variance, as in earlier versions)
+#' or "adaptive_ratio" (the variance without the GRM multiplied by the variance ratio that \code{\link{Variance_Ratio_Estimation}} stores in \code{obj_nullmodel},
+#' recalculated exactly for variants with p-value smaller than \code{p_refine_cutoff}) (default = "exact_diag").
+#' "adaptive_ratio" currently requires a single-phenotype null model fitted by \code{\link{fit_nullmodel}} with a sparse GRM in \code{kins}
+#' and one residual variance group, and is not available for ancestry-informed analysis. Run \code{\link{Variance_Ratio_Estimation}} on \code{obj_nullmodel} first,
+#' unless the variance component estimate of the GRM is 0 (then the variance without the GRM is exact).
+#' For imbalanced case-control null models (\code{use_SPA}), variants with p-value smaller than \code{p_filter_cutoff}
+#' (plus \code{spa_routing_buffer} for the p-value using the variance ratio) are recalculated using the SPA method,
+#' which does not use the variance, so the exact variance is not calculated for them.
+#' @param p_refine_cutoff threshold of the p-value using the variance ratio below which the exact variance is used.
+#' This is a routing threshold. Only used when \code{variance_method} is "adaptive_ratio" (default = 0.05).
+#' @param spa_routing_buffer conservative one-sided guard for the SPA routing of imbalanced case-control null models (\code{use_SPA})
+#' when \code{variance_method} is "adaptive_ratio" and the variance component estimate of the GRM is nonzero: variants with p-value using the variance ratio
+#' smaller than \code{min(1, p_filter_cutoff + spa_routing_buffer)} are recalculated using the SPA method, so that the variance approximation does not push
+#' a variant that the exact variance would send to SPA just above \code{p_filter_cutoff}, the nominal SPA routing threshold. Not used otherwise.
+#' The default was validated for the default \code{p_filter_cutoff} = 0.05 (common variants), not for other SPA routing thresholds (default = 1e-4).
 #' @return A data frame containing the score test p-value and the estimated effect size of the minor allele for each individual variant in the given genetic region, or as provided in \code{individual_results}
 #' for ancestry-informed variant analysis. The first 4 columns correspond to chromosome (CHR), position (POS), reference allele (REF), and alternative allele (ALT).
 #' If \code{find_weight} is TRUE, returns a list containing the ancestry-informed score test p-values and the estimated effect size of the minor allele for each individual variant provided in \code{individual_results}.
@@ -45,11 +61,13 @@
 Individual_Analysis <- function(chr,start_loc=NULL,end_loc=NULL,individual_results=NULL,genofile,obj_nullmodel,mac_cutoff=20,subset_variants_num=5e3,
                                 QC_label="annotation/filter",variant_type=c("variant","SNV","Indel"),geno_missing_imputation=c("mean","minor"),
                                 tol=.Machine$double.eps^0.25,max_iter=1000,SPA_p_filter=TRUE,p_filter_cutoff=0.05,
-                                use_ancestry_informed=FALSE,find_weight=FALSE){
+                                use_ancestry_informed=FALSE,find_weight=FALSE,
+                                variance_method=c("exact_diag","adaptive_ratio"),p_refine_cutoff=0.05,spa_routing_buffer=1e-4){
 
 	## evaluate choices
 	variant_type <- match.arg(variant_type)
 	geno_missing_imputation <- match.arg(geno_missing_imputation)
+	variance_method <- match.arg(variance_method)
 
 	## Null Model
 	phenotype.id <- as.character(obj_nullmodel$id_include)
@@ -119,6 +137,60 @@ Individual_Analysis <- function(chr,start_loc=NULL,end_loc=NULL,individual_resul
 			Sigma_iX <- as.matrix(obj_nullmodel$Sigma_iX)
 			cov <- obj_nullmodel$cov
 		}
+	}
+
+	## adaptive variance ratio
+	if(variance_method == "adaptive_ratio")
+	{
+		## supported null models: single phenotype, one residual variance group, sparse GRM supplied in kins
+		## (fit_nullmodel also sets sparse_kins to TRUE when kins is NULL)
+		is.supported <- obj_nullmodel$sparse_kins && any(grepl("^kins", names(obj_nullmodel$theta))) &&
+		                (n_pheno == 1) && (obj_nullmodel$n.groups == 1) && !use_ancestry_informed
+		if(!is.supported)
+		{
+			stop("adaptive_ratio requires a single-phenotype null model fitted by fit_nullmodel with a sparse GRM in kins (not ancestry-informed analysis)!")
+		}
+
+		## the working weights D are proportional to 1/theta[1]: a residual variance estimate of 0 (boundary fit) is not supported
+		if(!(is.finite(obj_nullmodel$theta[1]) && (obj_nullmodel$theta[1] > 0)))
+		{
+			stop("adaptive_ratio requires a positive finite residual variance estimate (theta[1]) in obj_nullmodel, but it is ",obj_nullmodel$theta[1],"!")
+		}
+
+		## variance component estimate of 0: Sigma_i is D, so the variance without the GRM is exact (no calibration or refinement)
+		tau_zero <- all(obj_nullmodel$theta[-1] == 0)
+		if(tau_zero)
+		{
+			ratio_v0 <- 1
+		}else
+		{
+			if(is.null(obj_nullmodel$variance_ratio$ratio_v0))
+			{
+				stop("Please run Variance_Ratio_Estimation on obj_nullmodel before using variance_method = \"adaptive_ratio\"!")
+			}
+			ratio_v0 <- obj_nullmodel$variance_ratio$ratio_v0
+		}
+
+		## SPA routing threshold of the p-values using the variance ratio: one-sided buffer for the variance approximation
+		## (imbalanced case-control null models with a nonzero variance component estimate of the GRM)
+		if(!is.numeric(spa_routing_buffer) || (length(spa_routing_buffer) != 1) || is.na(spa_routing_buffer) || (spa_routing_buffer < 0))
+		{
+			stop("spa_routing_buffer should be a non-negative number!")
+		}
+		p_filter_cutoff_ratio <- p_filter_cutoff
+		if(use_SPA && !tau_zero)
+		{
+			p_filter_cutoff_ratio <- min(1, p_filter_cutoff + spa_routing_buffer)
+		}
+
+		## working weights without the GRM: mu(1-mu) for binary, 1/tau_e for quantitative phenotypes
+		X <- obj_nullmodel$X
+		D <- obj_nullmodel$family$mu.eta(obj_nullmodel$linear.predictors)^2/obj_nullmodel$family$variance(obj_nullmodel$fitted.values)/obj_nullmodel$theta[1]
+		## projection onto the covariates with weights D using the QR decomposition of D^{1/2}X: Q'D^{1/2} and the identity
+		## replace X'D and (X'DX)^{-1}, as X'DX squares the condition number and can be numerically singular for few cases
+		X_qr <- qr(sqrt(D)*X)
+		XD <- t(qr.Q(X_qr)[,seq_len(X_qr$rank),drop=FALSE]*sqrt(D))
+		XDX_inv <- diag(X_qr$rank)
 	}
 
 	## get SNV id
@@ -287,12 +359,38 @@ Individual_Analysis <- function(chr,start_loc=NULL,end_loc=NULL,individual_resul
 		      ALT_AF_common_subset <- ALT_AF_common[is.in_common_subset]
 		      N_common_subset <- N_common[is.in_common_subset]
 		      
+		      ## SPA routing threshold
+		      p_SPA_cutoff <- p_filter_cutoff
+
 		      ## sparse GRM
 		      if(obj_nullmodel$sparse_kins)
 		      {
 		        if(n_pheno == 1)
 		        {
-		          Score_test <- Individual_Score_Test_sp(Geno_common_subset, Sigma_i, Sigma_iX, cov, residuals.phenotype)
+		          if(variance_method == "adaptive_ratio")
+		          {
+		            Score_test <- Individual_Score_Test_sp_ratio(Geno_common_subset, D, XD, XDX_inv, residuals.phenotype, ratio_v0)
+
+		            ## exact variance for small p-values, except variants recalculated using SPA (not needed if tau_zero)
+		            if(!tau_zero)
+		            {
+		              pvalue_ratio <- exp(-Score_test$pvalue_log)
+		              is.common_subset_refine <- as.vector((pvalue_ratio < p_refine_cutoff) & !(use_SPA & (pvalue_ratio < p_filter_cutoff_ratio)))
+		              if(sum(is.common_subset_refine)>=1)
+		              {
+		                Score_test_refine <- Individual_Score_Test_sp(Geno_common_subset[,is.common_subset_refine,drop=FALSE], Sigma_i, Sigma_iX, cov, residuals.phenotype)
+		                for(k in names(Score_test))
+		                {
+		                  Score_test[[k]][is.common_subset_refine] <- Score_test_refine[[k]]
+		                }
+		              }
+		              ## SPA routing: p-values using the variance ratio with the buffered threshold, exact p-values with p_filter_cutoff
+		              p_SPA_cutoff <- ifelse(is.common_subset_refine, p_filter_cutoff, p_filter_cutoff_ratio)
+		            }
+		          }else
+		          {
+		            Score_test <- Individual_Score_Test_sp(Geno_common_subset, Sigma_i, Sigma_iX, cov, residuals.phenotype)
+		          }
 		        }else
 		        {
 		          Geno_common_subset <- Diagonal(n = n_pheno) %x% Geno_common_subset
@@ -318,15 +416,15 @@ Individual_Analysis <- function(chr,start_loc=NULL,end_loc=NULL,individual_resul
 		      {
 		        pvalue <- exp(-Score_test$pvalue_log)
 		        
-		        if(sum(pvalue < p_filter_cutoff)>=1)
+		        if(sum(pvalue < p_SPA_cutoff)>=1)
 		        {
-		          is.common_subset_SPA <- as.vector(pvalue < p_filter_cutoff)
+		          is.common_subset_SPA <- as.vector(pvalue < p_SPA_cutoff)
 		          Geno_common_subset_SPA <- Geno_common_subset[,is.common_subset_SPA,drop=FALSE]
 		          Geno_common_subset_SPA <- as.matrix(Geno_common_subset_SPA)
 		          
 		          pvalue_SPA <- Individual_Score_Test_SPA(Geno_common_subset_SPA,XW,XXWX_inv,residuals.phenotype,muhat,tol,max_iter)
 		          
-		          pvalue[pvalue < p_filter_cutoff] <- pvalue_SPA
+		          pvalue[pvalue < p_SPA_cutoff] <- pvalue_SPA
 		        }
 		      }
 		      
@@ -369,12 +467,38 @@ Individual_Analysis <- function(chr,start_loc=NULL,end_loc=NULL,individual_resul
 			  ALT_AF_rare <- ALT_AF.in[is.rare_lowmissing]
 			  N_rare <- N[is.rare_lowmissing]
 
+				## SPA routing threshold
+				p_SPA_cutoff <- p_filter_cutoff
+
 				## sparse GRM
 				if(obj_nullmodel$sparse_kins)
 				{
 				  if(n_pheno == 1)
 				  {
-				    Score_test <- Individual_Score_Test_sp(Geno_rare, Sigma_i, Sigma_iX, cov, residuals.phenotype)
+				    if(variance_method == "adaptive_ratio")
+				    {
+				      Score_test <- Individual_Score_Test_sp_ratio(Geno_rare, D, XD, XDX_inv, residuals.phenotype, ratio_v0)
+
+				      ## exact variance for small p-values, except variants recalculated using SPA (not needed if tau_zero)
+				      if(!tau_zero)
+				      {
+				        pvalue_ratio <- exp(-Score_test$pvalue_log)
+				        is.rare_refine <- as.vector((pvalue_ratio < p_refine_cutoff) & !(use_SPA & (pvalue_ratio < p_filter_cutoff_ratio)))
+				        if(sum(is.rare_refine)>=1)
+				        {
+				          Score_test_refine <- Individual_Score_Test_sp(Geno_rare[,is.rare_refine,drop=FALSE], Sigma_i, Sigma_iX, cov, residuals.phenotype)
+				          for(k in names(Score_test))
+				          {
+				            Score_test[[k]][is.rare_refine] <- Score_test_refine[[k]]
+				          }
+				        }
+				        ## SPA routing: p-values using the variance ratio with the buffered threshold, exact p-values with p_filter_cutoff
+				        p_SPA_cutoff <- ifelse(is.rare_refine, p_filter_cutoff, p_filter_cutoff_ratio)
+				      }
+				    }else
+				    {
+				      Score_test <- Individual_Score_Test_sp(Geno_rare, Sigma_i, Sigma_iX, cov, residuals.phenotype)
+				    }
 				  }else
 				  {
 				    Geno_rare <- Diagonal(n = n_pheno) %x% Geno_rare
@@ -401,7 +525,7 @@ Individual_Analysis <- function(chr,start_loc=NULL,end_loc=NULL,individual_resul
 				{
 				  pvalue <- exp(-Score_test$pvalue_log)
 				  
-				  is.rare_SPA <- as.vector(pvalue < p_filter_cutoff)
+				  is.rare_SPA <- as.vector(pvalue < p_SPA_cutoff)
 				  if(sum(is.rare_SPA)>=1)
 				  {
 				    pvalue_SPA <- c()

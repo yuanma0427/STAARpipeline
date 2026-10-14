@@ -45,6 +45,10 @@ Individual_Score_Test_sp_multi <- function(G, Sigma_i, Sigma_iX, cov, residuals,
     .Call(`_STAARpipeline_Individual_Score_Test_sp_multi`, G, Sigma_i, Sigma_iX, cov, residuals, n_pheno)
 }
 
+Individual_Score_Test_sp_ratio <- function(G, D, XD, XDX_inv, residuals, ratio) {
+    .Call(`_STAARpipeline_Individual_Score_Test_sp_ratio`, G, D, XD, XDX_inv, residuals, ratio)
+}
+
 matrix_flip_mean <- function(G) {
     .Call(`_STAARpipeline_matrix_flip_mean`, G)
 }

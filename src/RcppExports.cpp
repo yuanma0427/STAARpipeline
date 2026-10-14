@@ -180,6 +180,22 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// Individual_Score_Test_sp_ratio
+List Individual_Score_Test_sp_ratio(arma::sp_mat G, arma::vec D, arma::mat XD, arma::mat XDX_inv, arma::vec residuals, double ratio);
+RcppExport SEXP _STAARpipeline_Individual_Score_Test_sp_ratio(SEXP GSEXP, SEXP DSEXP, SEXP XDSEXP, SEXP XDX_invSEXP, SEXP residualsSEXP, SEXP ratioSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::sp_mat >::type G(GSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type D(DSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type XD(XDSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type XDX_inv(XDX_invSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type residuals(residualsSEXP);
+    Rcpp::traits::input_parameter< double >::type ratio(ratioSEXP);
+    rcpp_result_gen = Rcpp::wrap(Individual_Score_Test_sp_ratio(G, D, XD, XDX_inv, residuals, ratio));
+    return rcpp_result_gen;
+END_RCPP
+}
 // matrix_flip_mean
 List matrix_flip_mean(arma::mat G);
 static SEXP _STAARpipeline_matrix_flip_mean_try(SEXP GSEXP) {
@@ -209,7 +225,7 @@ RcppExport SEXP _STAARpipeline_matrix_flip_mean(SEXP GSEXP) {
     if (rcpp_isError_gen) {
         SEXP rcpp_msgSEXP_gen = Rf_asChar(rcpp_result_gen);
         UNPROTECT(1);
-        Rf_error("%s", CHAR(rcpp_msgSEXP_gen));
+        (Rf_error)("%s", CHAR(rcpp_msgSEXP_gen));
     }
     UNPROTECT(1);
     return rcpp_result_gen;
@@ -243,7 +259,7 @@ RcppExport SEXP _STAARpipeline_matrix_flip_minor(SEXP GSEXP) {
     if (rcpp_isError_gen) {
         SEXP rcpp_msgSEXP_gen = Rf_asChar(rcpp_result_gen);
         UNPROTECT(1);
-        Rf_error("%s", CHAR(rcpp_msgSEXP_gen));
+        (Rf_error)("%s", CHAR(rcpp_msgSEXP_gen));
     }
     UNPROTECT(1);
     return rcpp_result_gen;
@@ -279,6 +295,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_STAARpipeline_Individual_Score_Test_sp_denseGRM", (DL_FUNC) &_STAARpipeline_Individual_Score_Test_sp_denseGRM, 3},
     {"_STAARpipeline_Individual_Score_Test_sp_denseGRM_multi", (DL_FUNC) &_STAARpipeline_Individual_Score_Test_sp_denseGRM_multi, 4},
     {"_STAARpipeline_Individual_Score_Test_sp_multi", (DL_FUNC) &_STAARpipeline_Individual_Score_Test_sp_multi, 6},
+    {"_STAARpipeline_Individual_Score_Test_sp_ratio", (DL_FUNC) &_STAARpipeline_Individual_Score_Test_sp_ratio, 6},
     {"_STAARpipeline_matrix_flip_mean", (DL_FUNC) &_STAARpipeline_matrix_flip_mean, 1},
     {"_STAARpipeline_matrix_flip_minor", (DL_FUNC) &_STAARpipeline_matrix_flip_minor, 1},
     {"_STAARpipeline_RcppExport_registerCCallable", (DL_FUNC) &_STAARpipeline_RcppExport_registerCCallable, 0},

@@ -1,6 +1,6 @@
 exportPattern("^[[:alpha:]]+")
 import(Rcpp, STAAR, MultiSTAAR, SCANG, dplyr, SeqArray, TxDb.Hsapiens.UCSC.hg38.knownGene, GMMAT, Matrix, methods)
-importFrom("stats", "pchisq", "lm", "model.matrix", "quantile", "rnorm", "binomial", "dbeta")
+importFrom("stats", "pchisq", "lm", "model.matrix", "quantile", "rnorm", "binomial", "dbeta", "sd")
 importFrom("SeqVarTools", "isSNV")
 importFrom("GenomicFeatures", "genes", "promoters")
 importFrom("GENESIS", "makeSparseMatrix")
@@ -19,4 +19,5 @@ export(fit_nullmodel,
        ncRNA,ncRNA_cond,ncRNA_cond_spa,
        Sliding_Window,Sliding_Window_cond,Sliding_Window_cond_spa,
        Dynamic_Window_SCANG,
-       LD_pruning,Genotype_sp_extraction,MultiSTAAR_sp)
+       LD_pruning,Genotype_sp_extraction,MultiSTAAR_sp,
+       Variance_Ratio_Estimation)

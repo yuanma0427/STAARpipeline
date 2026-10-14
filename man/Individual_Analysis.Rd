@@ -21,7 +21,10 @@ Individual_Analysis(
   SPA_p_filter = TRUE,
   p_filter_cutoff = 0.05,
   use_ancestry_informed = FALSE,
-  find_weight = FALSE
+  find_weight = FALSE,
+  variance_method = c("exact_diag", "adaptive_ratio"),
+  p_refine_cutoff = 0.05,
+  spa_routing_buffer = 1e-04
 )
 }
 \arguments{
@@ -62,6 +65,25 @@ estimates in saddlepoint approximation algorithm below which iterations should b
 \item{use_ancestry_informed}{logical: is ancestry-informed association analysis used to estimate p-values (default = FALSE).}
 
 \item{find_weight}{logical: should the ancestry group-specific weights and weighting scenario-specific p-values for each base test be saved as output (default = FALSE).}
+
+\item{variance_method}{method of calculating the score test variance. Either "exact_diag" (the exact variance, as in earlier versions)
+or "adaptive_ratio" (the variance without the GRM multiplied by the variance ratio that \code{\link{Variance_Ratio_Estimation}} stores in \code{obj_nullmodel},
+recalculated exactly for variants with p-value smaller than \code{p_refine_cutoff}) (default = "exact_diag").
+"adaptive_ratio" currently requires a single-phenotype null model fitted by \code{\link{fit_nullmodel}} with a sparse GRM in \code{kins}
+and one residual variance group, and is not available for ancestry-informed analysis. Run \code{\link{Variance_Ratio_Estimation}} on \code{obj_nullmodel} first,
+unless the variance component estimate of the GRM is 0 (then the variance without the GRM is exact).
+For imbalanced case-control null models (\code{use_SPA}), variants with p-value smaller than \code{p_filter_cutoff}
+(plus \code{spa_routing_buffer} for the p-value using the variance ratio) are recalculated using the SPA method,
+which does not use the variance, so the exact variance is not calculated for them.}
+
+\item{p_refine_cutoff}{threshold of the p-value using the variance ratio below which the exact variance is used.
+This is a routing threshold. Only used when \code{variance_method} is "adaptive_ratio" (default = 0.05).}
+
+\item{spa_routing_buffer}{conservative one-sided guard for the SPA routing of imbalanced case-control null models (\code{use_SPA})
+when \code{variance_method} is "adaptive_ratio" and the variance component estimate of the GRM is nonzero: variants with p-value using the variance ratio
+smaller than \code{min(1, p_filter_cutoff + spa_routing_buffer)} are recalculated using the SPA method, so that the variance approximation does not push
+a variant that the exact variance would send to SPA just above \code{p_filter_cutoff}, the nominal SPA routing threshold. Not used otherwise.
+The default was validated for the default \code{p_filter_cutoff} = 0.05 (common variants), not for other SPA routing thresholds (default = 1e-4).}
 }
 \value{
 A data frame containing the score test p-value and the estimated effect size of the minor allele for each individual variant in the given genetic region, or as provided in \code{individual_results}
